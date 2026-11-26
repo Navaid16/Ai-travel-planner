@@ -60,25 +60,26 @@ async function loadDestinationWeather(city, startDate, endDate) {
 
         geoUrl.search = new URLSearchParams({
             name: city,
-            count: "1",
+            count: "5",
             language: "en",
             format: "json",
             countryCode: "IN"
         });
 
         const geoResponse = await fetch(geoUrl);
-
         if (!geoResponse.ok) {
             throw new Error("Unable to find destination.");
         }
 
         const geoData = await geoResponse.json();
-
         if (!geoData.results || geoData.results.length === 0) {
             throw new Error("Destination not found. Try a city name.");
         }
 
-        const place = geoData.results[0];
+        // Sabse bada city/state pick karein taaki chhote gaon na aayein
+        const place = geoData.results.sort(
+            (a, b) => (b.population || 0) - (a.population || 0)
+        )[0];
 
         // Step 2: Check whether selected dates are within forecast range.
         const today = new Date();
@@ -164,7 +165,18 @@ async function loadDestinationWeather(city, startDate, endDate) {
             return;
         }
 
-        // Step 5: Get forecast for the exact selected dates.
+        // Kam se kam 5 din ka forecast dikhane ke liye end date calculate karein
+        const minEndDate = new Date(selectedStart);
+        minEndDate.setDate(minEndDate.getDate() + 4);
+
+        const actualForecastEnd = selectedEnd > minEndDate ? selectedEnd : minEndDate;
+        const forecastEndString = [
+            actualForecastEnd.getFullYear(),
+            String(actualForecastEnd.getMonth() + 1).padStart(2, "0"),
+            String(actualForecastEnd.getDate()).padStart(2, "0")
+        ].join("-");
+
+        // Step 5: Get forecast for the selected dates (minimum 5 days).
         const forecastUrl = new URL(
             "https://api.open-meteo.com/v1/forecast"
         );
@@ -174,7 +186,7 @@ async function loadDestinationWeather(city, startDate, endDate) {
             longitude: place.longitude,
             daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
             start_date: startDate,
-            end_date: endDate,
+            end_date: forecastEndString,
             timezone: "auto"
         });
 
