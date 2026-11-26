@@ -1,4 +1,3 @@
-
 const form = document.getElementById("travelForm");
 const result = document.getElementById("result");
 const destinationInput = document.getElementById("destination");
@@ -6,38 +5,326 @@ const destinationGrid = document.getElementById("destinationGrid");
 const travelersInput = document.getElementById("travelers");
 const travelWithInput = document.getElementById("travelWith");
 
-// Convert Open-Meteo weather codes into readable conditions.
-function getWeatherDescription(code) {
-    const conditions = {
-        0: ["☀️", "Clear Sky"],
-        1: ["🌤️", "Mainly Clear"],
-        2: ["⛅", "Partly Cloudy"],
-        3: ["☁️", "Overcast"],
-        45: ["🌫️", "Fog"],
-        48: ["🌫️", "Depositing Rime Fog"],
-        51: ["🌦️", "Light Drizzle"],
-        53: ["🌦️", "Moderate Drizzle"],
-        55: ["🌧️", "Heavy Drizzle"],
-        61: ["🌧️", "Light Rain"],
-        63: ["🌧️", "Moderate Rain"],
-        65: ["🌧️", "Heavy Rain"],
-        71: ["🌨️", "Light Snow"],
-        73: ["🌨️", "Moderate Snow"],
-        75: ["❄️", "Heavy Snow"],
-        80: ["🌦️", "Rain Showers"],
-        81: ["🌧️", "Moderate Showers"],
-        82: ["⛈️", "Heavy Showers"],
-        95: ["⛈️", "Thunderstorm"],
-        96: ["⛈️", "Thunderstorm with Hail"],
-        99: ["⛈️", "Severe Thunderstorm"]
+let currentUser = null;
+let activeTripData = null;
+
+// ---------------- MODAL HELPERS ----------------
+function openModal(id) {
+    document.getElementById(id).hidden = false;
+}
+function closeModal(id) {
+    document.getElementById(id).hidden = true;
+}
+document.querySelectorAll("[data-close]").forEach(btn => {
+    btn.addEventListener("click", () => closeModal(btn.dataset.close));
+});
+
+// ---------------- AUTH STATE & LOGIN/SIGNUP ----------------
+let isSignupMode = false;
+const navAuthBtn = document.getElementById("navAuthBtn");
+const authForm = document.getElementById("authForm");
+const authNameGroup = document.getElementById("authNameGroup");
+const authModalTitle = document.getElementById("authModalTitle");
+const authSubmitBtn = document.getElementById("authSubmitBtn");
+const authToggleModeBtn = document.getElementById("authToggleModeBtn");
+const authSwitchText = document.getElementById("authSwitchText");
+const authMsg = document.getElementById("authMsg");
+const loggedInPanel = document.getElementById("loggedInPanel");
+const loggedInUserInfo = document.getElementById("loggedInUserInfo");
+
+async function refreshAuthStatus() {
+    try {
+        const res = await fetch("/api/me");
+        const data = await res.json();
+        if (data.logged_in) {
+            currentUser = data.user;
+            navAuthBtn.textContent = "👤 " + data.user.name;
+            loggedInPanel.hidden = false;
+            authForm.hidden = true;
+            authModalTitle.textContent = "Your Account";
+            loggedInUserInfo.textContent = `Signed in as ${data.user.name} (${data.user.email})`;
+        } else {
+            currentUser = null;
+            navAuthBtn.textContent = "Login / Sign Up";
+            loggedInPanel.hidden = true;
+            authForm.hidden = false;
+            authModalTitle.textContent = isSignupMode ? "Create WanderAI Account" : "Welcome to WanderAI";
+        }
+    } catch (e) {
+        console.error("Auth check failed:", e);
+    }
+}
+
+navAuthBtn.addEventListener("click", () => {
+    authMsg.textContent = "";
+    refreshAuthStatus();
+    openModal("authModal");
+});
+
+authToggleModeBtn.addEventListener("click", () => {
+    isSignupMode = !isSignupMode;
+    authNameGroup.hidden = !isSignupMode;
+    authModalTitle.textContent = isSignupMode ? "Create WanderAI Account" : "Welcome to WanderAI";
+    authSubmitBtn.textContent = isSignupMode ? "Sign Up" : "Login";
+    authSwitchText.textContent = isSignupMode ? "Already have an account?" : "Don't have an account?";
+    authToggleModeBtn.textContent = isSignupMode ? "Login" : "Sign Up";
+    authMsg.textContent = "";
+});
+
+authForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    authMsg.textContent = "Please wait...";
+    const endpoint = isSignupMode ? "/api/signup" : "/api/login";
+    const payload = {
+        name: document.getElementById("authName").value.trim(),
+        email: document.getElementById("authEmail").value.trim(),
+        password: document.getElementById("authPassword").value
     };
 
+    const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+        authMsg.style.color = "#dc2626";
+        authMsg.textContent = data.error || "Authentication failed.";
+        return;
+    }
+    authMsg.style.color = "#0f766e";
+    authMsg.textContent = data.message;
+    await refreshAuthStatus();
+    setTimeout(() => closeModal("authModal"), 700);
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" });
+    await refreshAuthStatus();
+    closeModal("authModal");
+});
+
+// ---------------- TRAVEL HISTORY ----------------
+async function loadTravelHistory() {
+    const historyList = document.getElementById("historyList");
+    historyList.innerHTML = "<p>Loading your saved trips...</p>";
+    openModal("historyModal");
+
+    const res = await fetch("/api/trips");
+    const data = await res.json();
+
+    if (!res.ok) {
+        historyList.innerHTML = `<p style="color:#dc2626;">${data.error || "Please login first to see your saved trips."}</p>`;
+        return;
+    }
+
+    if (!data.trips || data.trips.length === 0) {
+        historyList.innerHTML = "<p>No saved trips yet. Generate a trip while logged in to save it automatically!</p>";
+        return;
+    }
+
+    historyList.replaceChildren();
+    data.trips.forEach(trip => {
+        const item = document.createElement("div");
+        item.className = "history-card";
+        item.innerHTML = `
+            <div>
+                <strong>${trip.start_city} ➔ ${trip.destination} (${trip.days} Days)</strong>
+                <p style="margin:4px 0;font-size:13px;color:#475569;">
+                    ${trip.travelers} Traveller(s) · ${trip.travel_style} · Est. ₹${Number(trip.estimated_budget).toLocaleString("en-IN")}
+                </p>
+                <span class="status-badge">${trip.booking_status}</span>
+            </div>
+            <div class="history-actions">
+                <button type="button" class="qb-btn hotel-btn load-trip-btn">Open Plan</button>
+                <button type="button" class="secondary-danger-btn del-trip-btn">Delete</button>
+            </div>
+        `;
+
+        item.querySelector(".load-trip-btn").addEventListener("click", () => {
+            closeModal("historyModal");
+            renderTripResult(trip.plan_data, trip.start_date || todayString, trip.end_date || todayString);
+        });
+
+        item.querySelector(".del-trip-btn").addEventListener("click", async () => {
+            await fetch(`/api/trips/${trip.id}`, { method: "DELETE" });
+            loadTravelHistory();
+        });
+
+        historyList.appendChild(item);
+    });
+}
+
+document.getElementById("navHistoryBtn").addEventListener("click", loadTravelHistory);
+document.getElementById("heroHistoryBtn").addEventListener("click", loadTravelHistory);
+
+// ---------------- QUICK SEARCH BAR (TRAINS / FLIGHTS / HOTELS) ----------------
+const qbDate = document.getElementById("qbDate");
+const today = new Date();
+const todayString = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0")
+].join("-");
+if (qbDate) qbDate.value = todayString;
+
+document.getElementById("searchTrainsBtn").addEventListener("click", () => {
+    const from = document.getElementById("qbFrom").value.trim() || "New Delhi";
+    const to = document.getElementById("qbTo").value.trim() || "Manali";
+    const query = encodeURIComponent(`IRCTC trains from ${from} to ${to}`);
+    window.open(`https://www.google.com/search?q=${query}`, "_blank", "noopener,noreferrer");
+});
+
+document.getElementById("searchFlightsBtn").addEventListener("click", () => {
+    const from = document.getElementById("qbFrom").value.trim() || "Delhi";
+    const to = document.getElementById("qbTo").value.trim() || "Goa";
+    const dateVal = qbDate.value || todayString;
+    const query = encodeURIComponent(`flights from ${from} to ${to} on ${dateVal}`);
+    window.open(`https://www.google.com/flights?q=${query}`, "_blank", "noopener,noreferrer");
+});
+
+document.getElementById("searchHotelsBtn").addEventListener("click", () => {
+    const to = document.getElementById("qbTo").value.trim() || "Jaipur";
+    const query = encodeURIComponent(`hotels in ${to}`);
+    window.open(`https://www.google.com/travel/hotels?q=${query}`, "_blank", "noopener,noreferrer");
+});
+
+// ---------------- PAYMENT CHECKOUT MODAL ----------------
+const paymentForm = document.getElementById("paymentForm");
+const paymentMsg = document.getElementById("paymentMsg");
+let pendingPayment = { title: "", amount: 0, tripId: null };
+
+function openPaymentModal(title, amount, tripId = null) {
+    pendingPayment = { title, amount: Number(amount) || 0, tripId };
+    document.getElementById("payItemTitle").textContent = title;
+    document.getElementById("payItemAmount").textContent = formatRupees(pendingPayment.amount);
+    paymentMsg.textContent = "";
+    openModal("paymentModal");
+}
+
+paymentForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const method = document.querySelector('input[name="payMethod"]:checked').value;
+    paymentMsg.style.color = "#123b67";
+    paymentMsg.textContent = "Processing secure payment...";
+
+    const res = await fetch("/api/book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            item_title: pendingPayment.title,
+            amount: pendingPayment.amount,
+            payment_method: method,
+            trip_id: pendingPayment.tripId
+        })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        paymentMsg.style.color = "#0f766e";
+        paymentMsg.textContent = "✅ " + data.message;
+    } else {
+        paymentMsg.style.color = "#dc2626";
+        paymentMsg.textContent = data.error || "Payment failed.";
+    }
+});
+
+// ---------------- CONTACT US MODAL ----------------
+document.getElementById("navContactBtn").addEventListener("click", () => {
+    document.getElementById("contactMsg").textContent = "";
+    if (currentUser) {
+        document.getElementById("contactName").value = currentUser.name;
+        document.getElementById("contactEmail").value = currentUser.email;
+    }
+    openModal("contactModal");
+});
+
+document.getElementById("contactForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const contactMsg = document.getElementById("contactMsg");
+    contactMsg.textContent = "Sending...";
+
+    const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            name: document.getElementById("contactName").value.trim(),
+            email: document.getElementById("contactEmail").value.trim(),
+            subject: document.getElementById("contactSubject").value,
+            message: document.getElementById("contactMessage").value.trim()
+        })
+    });
+    const data = await res.json();
+    if (res.ok) {
+        contactMsg.style.color = "#0f766e";
+        contactMsg.textContent = data.message;
+        document.getElementById("contactMessage").value = "";
+    } else {
+        contactMsg.style.color = "#dc2626";
+        contactMsg.textContent = data.error || "Could not send message.";
+    }
+});
+
+// ---------------- FLOATING HELP AI CHATBOT ----------------
+const helpAiToggle = document.getElementById("helpAiToggle");
+const helpAiBox = document.getElementById("helpAiBox");
+const helpAiClose = document.getElementById("helpAiClose");
+const helpAiForm = document.getElementById("helpAiForm");
+const helpAiMessages = document.getElementById("helpAiMessages");
+
+helpAiToggle.addEventListener("click", () => {
+    helpAiBox.hidden = !helpAiBox.hidden;
+});
+helpAiClose.addEventListener("click", () => {
+    helpAiBox.hidden = true;
+});
+
+helpAiForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("helpAiInput");
+    const question = input.value.trim();
+    if (!question) return;
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-msg";
+    userDiv.textContent = question;
+    helpAiMessages.appendChild(userDiv);
+    input.value = "";
+    helpAiMessages.scrollTop = helpAiMessages.scrollHeight;
+
+    const botDiv = document.createElement("div");
+    botDiv.className = "ai-msg";
+    botDiv.textContent = "Thinking...";
+    helpAiMessages.appendChild(botDiv);
+    helpAiMessages.scrollTop = helpAiMessages.scrollHeight;
+
+    try {
+        const res = await fetch("/api/help-ai", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question })
+        });
+        const data = await res.json();
+        botDiv.textContent = data.reply || data.error || "Sorry, try again.";
+    } catch {
+        botDiv.textContent = "Network error. Please try again.";
+    }
+    helpAiMessages.scrollTop = helpAiMessages.scrollHeight;
+});
+
+// ---------------- WEATHER FUNCTIONS ----------------
+function getWeatherDescription(code) {
+    const conditions = {
+        0: ["☀️", "Clear Sky"], 1: ["🌤️", "Mainly Clear"], 2: ["⛅", "Partly Cloudy"],
+        3: ["☁️", "Overcast"], 45: ["🌫️", "Fog"], 48: ["🌫️", "Depositing Rime Fog"],
+        51: ["🌦️", "Light Drizzle"], 53: ["🌦️", "Moderate Drizzle"], 55: ["🌧️", "Heavy Drizzle"],
+        61: ["🌧️", "Light Rain"], 63: ["🌧️", "Moderate Rain"], 65: ["🌧️", "Heavy Rain"],
+        71: ["🌨️", "Light Snow"], 73: ["🌨️", "Moderate Snow"], 75: ["❄️", "Heavy Snow"],
+        80: ["🌦️", "Rain Showers"], 81: ["🌧️", "Moderate Showers"], 82: ["⛈️", "Heavy Showers"],
+        95: ["⛈️", "Thunderstorm"], 96: ["⛈️", "Thunderstorm with Hail"], 99: ["⛈️", "Severe Thunderstorm"]
+    };
     return conditions[code] || ["🌡️", "Weather Unavailable"];
 }
 
-
-
-// Fetch weather for the selected destination and trip dates.
 async function loadDestinationWeather(city, startDate, endDate) {
     const section = document.getElementById("weatherSection");
     const currentBox = document.getElementById("weatherCurrent");
@@ -49,11 +336,9 @@ async function loadDestinationWeather(city, startDate, endDate) {
     currentBox.replaceChildren();
     forecastBox.replaceChildren();
     alertBox.hidden = true;
-
     locationText.textContent = "Checking weather for " + city + "...";
 
     try {
-        // Step 1: Popular tourist destinations ke exact coordinates + baaki cities ke liye API search
         const knownDestinations = {
             "goa": { name: "Goa", admin1: "India", latitude: 15.2993, longitude: 74.1240 },
             "manali": { name: "Manali", admin1: "Himachal Pradesh", latitude: 32.2432, longitude: 77.1892 },
@@ -64,62 +349,37 @@ async function loadDestinationWeather(city, startDate, endDate) {
             "shimla": { name: "Shimla", admin1: "Himachal Pradesh", latitude: 31.1048, longitude: 77.1734 },
             "udaipur": { name: "Udaipur", admin1: "Rajasthan", latitude: 24.5854, longitude: 73.7125 },
             "munnar": { name: "Munnar", admin1: "Kerala", latitude: 10.0889, longitude: 77.0595 },
-            "ooty": { name: "Ooty", admin1: "Tamil Nadu", latitude: 11.4102, longitude: 76.6950 },
-            "darjeeling": { name: "Darjeeling", admin1: "West Bengal", latitude: 27.0410, longitude: 88.2663 },
-            "varanasi": { name: "Varanasi", admin1: "Uttar Pradesh", latitude: 25.3176, longitude: 82.9739 }
+            "ooty": { name: "Ooty", admin1: "Tamil Nadu", latitude: 11.4102, longitude: 76.6950 }
         };
 
         const normalizedCity = city.trim().toLowerCase();
         let place = knownDestinations[normalizedCity];
 
         if (!place) {
-            const geoUrl = new URL(
-                "https://geocoding-api.open-meteo.com/v1/search"
-            );
-
+            const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
             geoUrl.search = new URLSearchParams({
-                name: city,
-                count: "5",
-                language: "en",
-                format: "json",
-                countryCode: "IN"
+                name: city, count: "5", language: "en", format: "json", countryCode: "IN"
             });
-
             const geoResponse = await fetch(geoUrl);
-
-            if (!geoResponse.ok) {
-                throw new Error("Unable to find destination.");
-            }
-
+            if (!geoResponse.ok) throw new Error("Unable to find destination.");
             const geoData = await geoResponse.json();
-
             if (!geoData.results || geoData.results.length === 0) {
-                throw new Error("Destination not found. Try a city name.");
+                throw new Error("Destination not found.");
             }
-
-            place = geoData.results.sort(
-                (a, b) => (b.population || 0) - (a.population || 0)
-            )[0];
+            place = geoData.results.sort((a, b) => (b.population || 0) - (a.population || 0))[0];
         }
 
-        // Step 2: Check whether selected dates are within forecast range.
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const lastForecastDate = new Date(today);
+        const nowZero = new Date();
+        nowZero.setHours(0, 0, 0, 0);
+        const lastForecastDate = new Date(nowZero);
         lastForecastDate.setDate(lastForecastDate.getDate() + 15);
 
         const selectedStart = new Date(startDate + "T00:00:00");
         const selectedEnd = new Date(endDate + "T00:00:00");
 
-        locationText.textContent =
-            place.name + ", " + (place.admin1 || place.country);
+        locationText.textContent = place.name + ", " + (place.admin1 || place.country || "India");
 
-        // Step 3: Get current weather.
-        const weatherUrl = new URL(
-            "https://api.open-meteo.com/v1/forecast"
-        );
-
+        const weatherUrl = new URL("https://api.open-meteo.com/v1/forecast");
         weatherUrl.search = new URLSearchParams({
             latitude: place.latitude,
             longitude: place.longitude,
@@ -128,68 +388,34 @@ async function loadDestinationWeather(city, startDate, endDate) {
         });
 
         const weatherResponse = await fetch(weatherUrl);
-
-        if (!weatherResponse.ok) {
-            throw new Error("Weather service is temporarily unavailable.");
-        }
-
+        if (!weatherResponse.ok) throw new Error("Weather service unavailable.");
         const weather = await weatherResponse.json();
         const current = weather.current;
 
-        if (!current) {
-            throw new Error("Current weather data is unavailable.");
-        }
-
-        // Current weather card.
         const condition = getWeatherDescription(current.weather_code);
-
         const currentCard = document.createElement("div");
         currentCard.className = "weather-main-card";
-
-        const icon = document.createElement("div");
-        icon.className = "weather-icon";
-        icon.textContent = condition[0];
-
-        const temperature = document.createElement("h2");
-        temperature.textContent =
-            Math.round(current.temperature_2m) + "°C";
-
-        const description = document.createElement("p");
-        description.textContent = condition[1];
-
-        const details = document.createElement("div");
-        details.className = "weather-details";
-
-        [
-            "Feels like: " + Math.round(current.apparent_temperature) + "°C",
-            "Humidity: " + current.relative_humidity_2m + "%",
-            "Wind: " + current.wind_speed_10m + " km/h"
-        ].forEach(function (value) {
-            const item = document.createElement("span");
-            item.textContent = value;
-            details.appendChild(item);
-        });
-
-        currentCard.append(icon, temperature, description, details);
+        currentCard.innerHTML = `
+            <div class="weather-icon">${condition[0]}</div>
+            <h2>${Math.round(current.temperature_2m)}°C</h2>
+            <p>${condition[1]}</p>
+            <div class="weather-details">
+                <span>Feels like: ${Math.round(current.apparent_temperature)}°C</span>
+                <span>Humidity: ${current.relative_humidity_2m}%</span>
+                <span>Wind: ${current.wind_speed_10m} km/h</span>
+            </div>
+        `;
         currentBox.appendChild(currentCard);
 
-        // Step 4: Check forecast availability for selected trip dates.
-        if (
-            selectedStart < today ||
-            selectedEnd > lastForecastDate
-        ) {
-            const message = document.createElement("p");
-            message.textContent =
-                "Trip-date forecast is currently available only within the next 16 days. Your itinerary is still generated successfully.";
-
-            forecastBox.appendChild(message);
+        if (selectedStart < nowZero || selectedEnd > lastForecastDate) {
+            const msg = document.createElement("p");
+            msg.textContent = "Multi-day forecast is available for dates within the next 16 days.";
+            forecastBox.appendChild(msg);
             return;
         }
 
-        // Kam se kam 5 din ka forecast dikhane ke liye end date calculate karein
         const minEndDate = new Date(selectedStart);
         minEndDate.setDate(minEndDate.getDate() + 4);
-
         const actualForecastEnd = selectedEnd > minEndDate ? selectedEnd : minEndDate;
         const forecastEndString = [
             actualForecastEnd.getFullYear(),
@@ -197,11 +423,7 @@ async function loadDestinationWeather(city, startDate, endDate) {
             String(actualForecastEnd.getDate()).padStart(2, "0")
         ].join("-");
 
-        // Step 5: Get forecast for the selected dates (minimum 5 days).
-        const forecastUrl = new URL(
-            "https://api.open-meteo.com/v1/forecast"
-        );
-
+        const forecastUrl = new URL("https://api.open-meteo.com/v1/forecast");
         forecastUrl.search = new URLSearchParams({
             latitude: place.latitude,
             longitude: place.longitude,
@@ -212,162 +434,72 @@ async function loadDestinationWeather(city, startDate, endDate) {
         });
 
         const forecastResponse = await fetch(forecastUrl);
-
-        if (!forecastResponse.ok) {
-            throw new Error("Trip-date forecast is temporarily unavailable.");
-        }
-
         const forecast = await forecastResponse.json();
         const daily = forecast.daily;
 
-        if (!daily || !daily.time) {
-            throw new Error("Forecast data is incomplete.");
-        }
-
-        // Display selected trip dates.
         let rainyDays = 0;
-
-        daily.time.forEach(function (date, index) {
+        daily.time.forEach((date, index) => {
             const code = daily.weather_code[index];
             const forecastCondition = getWeatherDescription(code);
-            const rainChance =
-                daily.precipitation_probability_max[index] ?? 0;
-
-            if (rainChance >= 60 || [95, 96, 99].includes(code)) {
-                rainyDays++;
-            }
+            const rainChance = daily.precipitation_probability_max[index] ?? 0;
+            if (rainChance >= 60 || [95, 96, 99].includes(code)) rainyDays++;
 
             const card = document.createElement("div");
             card.className = "forecast-card";
-
-            const dateElement = document.createElement("strong");
-            dateElement.textContent = new Date(
-                date + "T12:00:00"
-            ).toLocaleDateString("en-IN", {
-                weekday: "short",
-                day: "numeric",
-                month: "short"
-            });
-
-            const weatherIcon = document.createElement("div");
-            weatherIcon.className = "forecast-icon";
-            weatherIcon.textContent = forecastCondition[0];
-
-            const conditionText = document.createElement("p");
-            conditionText.textContent = forecastCondition[1];
-
-            const temperatures = document.createElement("strong");
-            temperatures.textContent =
-                Math.round(daily.temperature_2m_max[index]) + "° / " +
-                Math.round(daily.temperature_2m_min[index]) + "°";
-
-            const rain = document.createElement("small");
-            rain.textContent = "Rain chance: " + rainChance + "%";
-
-            card.append(
-                dateElement,
-                weatherIcon,
-                conditionText,
-                temperatures,
-                rain
-            );
-
+            card.innerHTML = `
+                <strong>${new Date(date + "T12:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</strong>
+                <div class="forecast-icon">${forecastCondition[0]}</div>
+                <p>${forecastCondition[1]}</p>
+                <strong>${Math.round(daily.temperature_2m_max[index])}° / ${Math.round(daily.temperature_2m_min[index])}°</strong>
+                <small>Rain chance: ${rainChance}%</small>
+            `;
             forecastBox.appendChild(card);
         });
 
-        // Forecast-based travel advisory.
         if (rainyDays > 0) {
             alertBox.hidden = false;
-            alertBox.textContent =
-                "☔ Travel tip: Rain or thunderstorm conditions may occur on " +
-                rainyDays +
-                " selected trip day(s). Carry suitable clothing and check the forecast before outdoor activities.";
+            alertBox.textContent = `☔ Travel tip: Rain or thunderstorm conditions may occur on ${rainyDays} trip day(s). Pack rain gear!`;
         }
-
     } catch (error) {
-        console.error("Weather error:", error);
-
         locationText.textContent = "Weather information unavailable.";
-
-        const message = document.createElement("p");
-        message.textContent =
-            error.message || "Please try again later.";
-
-        currentBox.appendChild(message);
     }
 }
 
-
+// ---------------- PLANNER FORM & RENDERING ----------------
 function formatRupees(value) {
     const amount = Number(value);
-
-    if (!Number.isFinite(amount)) {
-        return "Not available";
-    }
-
-    return "₹" + amount.toLocaleString("en-IN", {
-        maximumFractionDigits: 0
-    });
+    if (!Number.isFinite(amount)) return "Not available";
+    return "₹" + amount.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 }
 
-// Selecting a destination card fills the destination input.
-destinationGrid.addEventListener("click", function (event) {
+destinationGrid.addEventListener("click", (event) => {
     const card = event.target.closest(".destination-card");
-
     if (!card) return;
-
     destinationInput.value = card.dataset.destination;
-
-    destinationGrid.querySelectorAll(".destination-card").forEach(function (item) {
-        item.classList.remove("selected");
-    });
-
-    card.classList.add("selected");
-
-    document.getElementById("planner").scrollIntoView({
-        behavior: "smooth",
-        block: "start"
-    });
-
+    document.getElementById("planner").scrollIntoView({ behavior: "smooth", block: "start" });
     destinationInput.focus({ preventScroll: true });
 });
 
-// Set a sensible initial number of travellers when companions change.
-travelWithInput.addEventListener("change", function () {
-    if (travelWithInput.value === "Couple") {
+travelWithInput.addEventListener("change", () => {
+    if (travelWithInput.value === "Couple") travelersInput.value = 2;
+    else if (["Friends", "Family", "Group"].includes(travelWithInput.value) && Number(travelersInput.value) < 2) {
         travelersInput.value = 2;
-    } else if (
-        travelWithInput.value === "Friends" ||
-        travelWithInput.value === "Family" ||
-        travelWithInput.value === "Group"
-    ) {
-        if (Number(travelersInput.value) < 2) {
-            travelersInput.value = 2;
-        }
-    } else if (travelWithInput.value === "Solo") {
-        travelersInput.value = 1;
-    }
+    } else if (travelWithInput.value === "Solo") travelersInput.value = 1;
 });
 
 function addText(tag, text, parent = result, className = "") {
-    const element = document.createElement(tag);
-    element.textContent = String(text ?? "");
-
-    if (className) {
-        element.className = className;
-    }
-
-    parent.appendChild(element);
-    return element;
+    const el = document.createElement(tag);
+    el.textContent = String(text ?? "");
+    if (className) el.className = className;
+    parent.appendChild(el);
+    return el;
 }
 
 function addBudgetCard(parent, label, amount) {
     const card = document.createElement("div");
     card.className = "budget-card";
-
     addText("small", label, card);
     addText("strong", formatRupees(amount), card);
-
     parent.appendChild(card);
 }
 
@@ -377,877 +509,365 @@ function showError(message) {
     addText("p", message);
 }
 
-// Set today's date as the minimum selectable date.
 const startDateInput = document.getElementById("startDate");
 const endDateInput = document.getElementById("endDate");
 const dateError = document.getElementById("dateError");
 
-const today = new Date();
-const todayString = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0")
-].join("-");
-
 startDateInput.min = todayString;
 endDateInput.min = todayString;
 
-// Return date cannot be before departure date.
-startDateInput.addEventListener("change", function () {
+startDateInput.addEventListener("change", () => {
     endDateInput.min = startDateInput.value || todayString;
-
-    if (endDateInput.value && endDateInput.value < startDateInput.value) {
-        endDateInput.value = "";
-    }
-
+    if (endDateInput.value && endDateInput.value < startDateInput.value) endDateInput.value = "";
     updateTripDuration();
 });
-
 endDateInput.addEventListener("change", updateTripDuration);
 
 function updateTripDuration() {
     if (!startDateInput.value || !endDateInput.value) return;
-
     const start = new Date(startDateInput.value + "T00:00:00");
     const end = new Date(endDateInput.value + "T00:00:00");
+    const diff = Math.round((end - start) / 86400000);
+    if (diff < 0) dateError.textContent = "Return date cannot be before departure date.";
+    else dateError.textContent = `Your trip duration is ${diff + 1} day(s).`;
+}
 
-    const difference = Math.round((end - start) / 86400000);
+function renderTripResult(data, startDate, endDate) {
+    activeTripData = data;
+    result.replaceChildren();
 
-    if (difference < 0) {
-        dateError.textContent = "Return date cannot be before departure date.";
+    addText("h2", `✈️ ${data.days}-Day Trip to ${data.destination}`);
+    addText("p", `📅 ${new Date(startDate + "T00:00:00").toLocaleDateString("en-IN")} – ${new Date(endDate + "T00:00:00").toLocaleDateString("en-IN")}`);
+    addText("p", `${data.travel_with} trip · ${data.travelers} traveller(s) · ${data.interest} · Style: ${data.travel_style}`);
+
+    if (data.trip_id) {
+        addText("p", "✅ Saved automatically to your Travel History!", result, "saved-banner");
+    }
+
+    // Budget Summary + Book Full Package Button
+    addText("h3", "💰 Your Estimated Trip Budget");
+    const summary = document.createElement("div");
+    summary.className = "budget-summary";
+    addBudgetCard(summary, "Total estimated group cost", data.estimated_budget);
+    addBudgetCard(summary, "Estimated cost per person", data.estimated_per_person);
+    result.appendChild(summary);
+
+    const bookAllBtn = document.createElement("button");
+    bookAllBtn.type = "button";
+    bookAllBtn.className = "book-package-btn";
+    bookAllBtn.textContent = `💳 Book Complete Trip Package (${formatRupees(data.estimated_budget)})`;
+    bookAllBtn.addEventListener("click", () => {
+        openPaymentModal(`${data.days}-Day ${data.destination} Complete Package`, data.estimated_budget, data.trip_id);
+    });
+    result.appendChild(bookAllBtn);
+
+    // Breakdown + Chart
+    addText("h3", "Where your money may go");
+    const breakdownBox = document.createElement("div");
+    breakdownBox.className = "budget-breakdown";
+    [
+        ["Transport", "transport"],
+        ["Accommodation", "accommodation"],
+        ["Food", "food"],
+        ["Activities & sightseeing", "activities"],
+        ["Miscellaneous", "miscellaneous"]
+    ].forEach(([label, key]) => {
+        const line = document.createElement("div");
+        line.className = "budget-line";
+        addText("span", label, line);
+        addText("span", formatRupees(data.budget_breakdown?.[key]), line);
+        breakdownBox.appendChild(line);
+    });
+    result.appendChild(breakdownBox);
+
+    if (window.Chart && data.budget_breakdown) {
+        const chartWrapper = document.createElement("div");
+        chartWrapper.className = "budget-chart-box";
+        const canvas = document.createElement("canvas");
+        chartWrapper.appendChild(canvas);
+        result.appendChild(chartWrapper);
+
+        new Chart(canvas, {
+            type: "doughnut",
+            data: {
+                labels: ["Transport", "Accommodation", "Food", "Activities", "Misc"],
+                datasets: [{
+                    data: [
+                        data.budget_breakdown.transport || 0,
+                        data.budget_breakdown.accommodation || 0,
+                        data.budget_breakdown.food || 0,
+                        data.budget_breakdown.activities || 0,
+                        data.budget_breakdown.miscellaneous || 0
+                    ],
+                    backgroundColor: ["#123b67", "#0d9488", "#2563eb", "#f59e0b", "#64748b"],
+                    borderWidth: 2,
+                    borderColor: "#ffffff"
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: "bottom" } }
+            }
+        });
+    }
+
+    // Itinerary
+    addText("h3", "🗓️ Your Day-by-Day Itinerary");
+    (data.itinerary || []).forEach(day => {
+        const section = document.createElement("section");
+        section.className = "itinerary-day";
+        addText("h3", `Day ${day.day}`, section);
+        addText("p", day.plan, section);
+        addText("p", `Estimated cost for this day: ${formatRupees(day.estimated_cost)}`, section, "day-cost");
+        result.appendChild(section);
+    });
+
+    // Hotels + Maps + Book Hotel
+    addText("h3", "🏨 Recommended Hotels & Stay Booking");
+    const hotelsBox = document.createElement("div");
+    hotelsBox.className = "recommendation-grid";
+    (data.hotels || []).forEach(hotel => {
+        const card = document.createElement("div");
+        card.className = "recommendation-card";
+        addText("h3", hotel.name || "Hotel Option", card);
+        addText("p", hotel.type || "Stay", card);
+        addText("p", "📍 " + (hotel.location || data.destination), card);
+        addText("strong", "Approx. ₹" + Number(hotel.price_per_night || 0).toLocaleString("en-IN") + " / night", card);
+        addText("p", hotel.description || "", card);
+
+        const actionsDiv = document.createElement("div");
+        actionsDiv.className = "card-btn-row";
+
+        const mapLink = document.createElement("a");
+        mapLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((hotel.name || "") + " " + data.destination)}`;
+        mapLink.target = "_blank";
+        mapLink.rel = "noopener noreferrer";
+        mapLink.className = "map-link-btn";
+        mapLink.textContent = "🗺️ Map ↗";
+
+        const bookHotelBtn = document.createElement("button");
+        bookHotelBtn.type = "button";
+        bookHotelBtn.className = "book-mini-btn";
+        bookHotelBtn.textContent = "🏨 Book Hotel";
+        bookHotelBtn.addEventListener("click", () => {
+            const totalStay = (Number(hotel.price_per_night) || 2000) * Math.max(1, data.days - 1);
+            openPaymentModal(`Hotel: ${hotel.name} (${data.destination})`, totalStay, data.trip_id);
+        });
+
+        actionsDiv.append(mapLink, bookHotelBtn);
+        card.appendChild(actionsDiv);
+        hotelsBox.appendChild(card);
+    });
+    result.appendChild(hotelsBox);
+
+    // Transport + Search Trains/Flights + Book Ticket
+    addText("h3", "🚆 Transport Recommendations & Ticket Booking");
+    const transportBox = document.createElement("div");
+    transportBox.className = "recommendation-grid";
+    (data.transport_options || []).forEach(option => {
+        const card = document.createElement("div");
+        card.className = "recommendation-card";
+        addText("h3", option.mode || "Transport", card);
+        addText("p", "Route: " + (option.route || `${data.start_city} to ${data.destination}`), card);
+        addText("strong", "Approx. ₹" + Number(option.estimated_fare_per_person || 0).toLocaleString("en-IN") + " / person", card);
+        addText("p", "Travel time: " + (option.travel_time || "Varies"), card);
+        addText("p", option.description || "", card);
+
+        const actionsDiv = document.createElement("div");
+        actionsDiv.className = "card-btn-row";
+
+        const searchBtn = document.createElement("a");
+        const modeLower = (option.mode || "").toLowerCase();
+        if (modeLower.includes("flight")) {
+            searchBtn.href = `https://www.google.com/flights?q=${encodeURIComponent(`flights from ${data.start_city} to ${data.destination}`)}`;
+            searchBtn.textContent = "✈️ Search Flights ↗";
+        } else if (modeLower.includes("train")) {
+            searchBtn.href = `https://www.google.com/search?q=${encodeURIComponent(`IRCTC trains from ${data.start_city} to ${data.destination}`)}`;
+            searchBtn.textContent = "🚆 Search Trains ↗";
+        } else {
+            searchBtn.href = `https://www.google.com/search?q=${encodeURIComponent(`bus cab from ${data.start_city} to ${data.destination}`)}`;
+            searchBtn.textContent = "🚌 Search Bus/Cab ↗";
+        }
+        searchBtn.target = "_blank";
+        searchBtn.rel = "noopener noreferrer";
+        searchBtn.className = "map-link-btn";
+
+        const bookTransitBtn = document.createElement("button");
+        bookTransitBtn.type = "button";
+        bookTransitBtn.className = "book-mini-btn";
+        bookTransitBtn.textContent = "🎟️ Book Ticket";
+        bookTransitBtn.addEventListener("click", () => {
+            const totalFare = (Number(option.estimated_fare_per_person) || 1000) * (Number(data.travelers) || 1);
+            openPaymentModal(`${option.mode}: ${data.start_city} to ${data.destination}`, totalFare, data.trip_id);
+        });
+
+        actionsDiv.append(searchBtn, bookTransitBtn);
+        card.appendChild(actionsDiv);
+        transportBox.appendChild(card);
+    });
+    result.appendChild(transportBox);
+
+    // Packing Checklist
+    if (Array.isArray(data.packing_list) && data.packing_list.length > 0) {
+        addText("h3", "🎒 Smart Packing Checklist");
+        const packingBox = document.createElement("div");
+        packingBox.className = "packing-grid";
+        data.packing_list.forEach(itemText => {
+            const label = document.createElement("label");
+            label.className = "packing-item";
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            const span = document.createElement("span");
+            span.textContent = itemText;
+            checkbox.addEventListener("change", () => label.classList.toggle("checked", checkbox.checked));
+            label.append(checkbox, span);
+            packingBox.appendChild(label);
+        });
+        result.appendChild(packingBox);
+    }
+
+    addText("h3", "📌 Helpful travel note");
+    addText("p", data.note || "Verify transport, accommodation and attraction costs before departure.");
+
+    // PDF Download Button
+    const pdfButton = document.createElement("button");
+    pdfButton.textContent = "📄 Download Trip Plan as PDF";
+    pdfButton.className = "pdf-download-btn";
+    pdfButton.addEventListener("click", () => downloadTripPdf(data));
+    result.appendChild(pdfButton);
+
+    loadDestinationWeather(data.destination, startDate, endDate);
+    result.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function downloadTripPdf(data) {
+    if (!window.jspdf) {
+        showError("PDF library is not loaded. Please refresh the page.");
         return;
     }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF("p", "mm", "a4");
+    const pageWidth = 210, pageHeight = 297, margin = 18;
+    const contentWidth = pageWidth - margin * 2;
+    let y = 20;
 
-    if (difference === 0) {
-        dateError.textContent = "Your trip duration is 1 day.";
-    } else {
-        dateError.textContent = `Your trip duration is ${difference + 1} days.`;
+    const cleanText = (val) => String(val ?? "").replace(/[^\x20-\x7E\xA0-\xFF]/g, "").replace(/\s+/g, " ").trim();
+    const money = (val) => Number.isFinite(Number(val)) ? "INR " + Number(val).toLocaleString("en-IN") : "N/A";
+    const checkSpace = (h) => { if (y + h > pageHeight - 20) { doc.addPage(); y = 22; } };
+
+    function heading(title) {
+        checkSpace(18);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(25, 65, 115);
+        doc.text(title, margin, y);
+        y += 6;
+        doc.setDrawColor(210, 220, 235);
+        doc.line(margin, y, pageWidth - margin, y);
+        y += 6;
     }
+
+    function paragraph(text, size = 10) {
+        const lines = doc.splitTextToSize(cleanText(text), contentWidth);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(size);
+        doc.setTextColor(60, 60, 60);
+        lines.forEach(line => { checkSpace(6); doc.text(line, margin, y); y += 5.5; });
+        y += 2;
+    }
+
+    doc.setFillColor(24, 67, 125);
+    doc.rect(0, 0, pageWidth, 38, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.text("WanderAI", margin, 18);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.text("YOUR PERSONAL TRAVEL PLAN", margin, 27);
+    y = 48;
+
+    heading("TRIP OVERVIEW");
+    paragraph(`${data.days}-Day Trip from ${data.start_city} to ${data.destination} | ${data.travel_with} (${data.travelers} travellers) | Style: ${data.travel_style}`, 11);
+    paragraph(`Total Estimated Budget: ${money(data.estimated_budget)} | Per Person: ${money(data.estimated_per_person)}`, 11);
+
+    heading("DAY-BY-DAY ITINERARY");
+    (data.itinerary || []).forEach(day => {
+        checkSpace(20);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10.5);
+        doc.setTextColor(25, 65, 115);
+        doc.text(`Day ${day.day} (${money(day.estimated_cost)})`, margin, y);
+        y += 5.5;
+        paragraph(day.plan);
+    });
+
+    heading("RECOMMENDED HOTELS");
+    (data.hotels || []).forEach(h => {
+        paragraph(`${h.name} (${h.type}) - ${h.location} | ${money(h.price_per_night)}/night: ${h.description}`);
+    });
+
+    heading("TRANSPORT RECOMMENDATIONS");
+    (data.transport_options || []).forEach(t => {
+        paragraph(`${t.mode} (${t.route}) | ${money(t.estimated_fare_per_person)}/person | ${t.travel_time}: ${t.description}`);
+    });
+
+    heading("TRAVEL NOTE");
+    paragraph(data.note);
+    doc.save("WanderAI-Trip-Plan.pdf");
 }
 
-form.addEventListener("submit", async function (event) {
+form.addEventListener("submit", async (event) => {
     event.preventDefault();
-
-    // Read all values fresh from the form for each request.
     const startDate = startDateInput.value;
-const endDate = endDateInput.value;
+    const endDate = endDateInput.value;
+    if (!startDate || !endDate || endDate < startDate) {
+        dateError.textContent = "Please select valid departure and return dates.";
+        return;
+    }
+    const calculatedDays = Math.round((new Date(endDate + "T00:00:00") - new Date(startDate + "T00:00:00")) / 86400000) + 1;
+    if (calculatedDays > 14) {
+        dateError.textContent = "Trip duration can be maximum 14 days.";
+        return;
+    }
+    dateError.textContent = "";
 
-if (!startDate || !endDate) {
-    dateError.textContent = "Please select both departure and return dates.";
-    return;
-}
-
-if (endDate < startDate) {
-    dateError.textContent = "Return date cannot be before departure date.";
-    return;
-}
-
-const start = new Date(startDate + "T00:00:00");
-const end = new Date(endDate + "T00:00:00");
-const calculatedDays = Math.round((end - start) / 86400000) + 1;
-
-if (calculatedDays > 14) {
-    dateError.textContent = "Currently, trip duration can be maximum 14 days.";
-    return;
-}
-
-dateError.textContent = "";
-
-const trip = {
-    destination: destinationInput.value.trim(),
-    start_city: document.getElementById("startCity").value.trim(),
-    start_date: startDate,
-    end_date: endDate,
-    days: calculatedDays,
+    const trip = {
+        destination: destinationInput.value.trim(),
+        start_city: document.getElementById("startCity").value.trim(),
+        start_date: startDate,
+        end_date: endDate,
+        days: calculatedDays,
         travelers: Number(travelersInput.value),
         interest: document.getElementById("interest").value,
         travel_with: travelWithInput.value,
         travel_style: document.getElementById("travelStyle").value
     };
 
-    if (!trip.destination) {
-        showError("Please select or type a destination.");
-        destinationInput.focus();
-        return;
-    }
-
-    if (!Number.isInteger(trip.days) || trip.days < 1 || trip.days > 14) {
-        showError("Trip duration must be between 1 and 14 days.");
-        return;
-    }
-
-    if (
-        !Number.isInteger(trip.travelers) ||
-        trip.travelers < 1 ||
-        trip.travelers > 100
-    ) {
-        showError("Enter between 1 and 100 travellers.");
-        return;
-    }
-
     const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     button.textContent = "Planning your trip...";
-    result.setAttribute("aria-busy", "true");
     result.replaceChildren();
-
     addText("h3", "✈️ Your adventure is being planned...");
-    addText("p", "AI is preparing your itinerary and estimating your trip budget.");
+    addText("p", "AI is preparing your itinerary, budgets, and booking options.");
 
     try {
         const response = await fetch("/plan", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        cache: "no-store",
-        body: JSON.stringify(trip)
-    });
-
-    const responseText = await response.text();
-
-    let data;
-
-try {
-    data = JSON.parse(responseText);
-} catch (error) {
-    console.error("Server response is not JSON:", responseText);
-
-    throw new Error(
-        "Server returned an HTML error instead of JSON. Please check the VS Code terminal."
-    );
-}
-
-if (!response.ok) {
-    throw new Error(
-        data.error || "The server could not generate your travel plan."
-    );
-}
-
-       const expectedDays = Number(trip.days);
-       const actualDays = Array.isArray(data.itinerary)
-           ? data.itinerary.length
-           : 0;
-
-       console.log("Trip validation:", {
-            expectedDays,
-            actualDays,
-            response: data
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(trip)
         });
-
-        if (actualDays !== expectedDays) {
-            throw new Error(
-                `Itinerary mismatch: Expected ${expectedDays} days but received ${actualDays} days.`
-            );
-        }
-
-        result.replaceChildren();   
-
-        addText("h2", `✈️ ${data.days}-Day Trip to ${data.destination}`);
-        addText(
-    "p",
-    `📅 ${new Date(startDate + "T00:00:00").toLocaleDateString("en-IN")} – ${new Date(endDate + "T00:00:00").toLocaleDateString("en-IN")}`
-);
-        addText(
-            "p",
-            `${data.travelers > 1 ? data.travel_with === "Solo" ? "Group" : data.travel_with : data.travel_with} trip · ${data.travelers} traveller(s) · ${data.interest}`
-        );
-        addText("p", `Preferred style: ${data.travel_style}`);
-
-        // Budget summary
-        addText("h3", "💰 Your Estimated Trip Budget");
-
-        const summary = document.createElement("div");
-        summary.className = "budget-summary";
-
-        addBudgetCard(summary, "Total estimated group cost", data.estimated_budget);
-        addBudgetCard(summary, "Estimated cost per person", data.estimated_per_person);
-
-        result.appendChild(summary);
-
-        addText(
-            "p",
-            "These are AI-generated estimates for planning, not live booking prices."
-        );
-
-        // Category-wise budget breakdown
-        addText("h3", "Where your money may go");
-
-        const breakdownBox = document.createElement("div");
-        breakdownBox.className = "budget-breakdown";
-
-        const categories = [
-            ["Transport", "transport"],
-            ["Accommodation", "accommodation"],
-            ["Food", "food"],
-            ["Activities & sightseeing", "activities"],
-            ["Miscellaneous", "miscellaneous"]
-        ];
-
-        categories.forEach(function ([label, key]) {
-            const line = document.createElement("div");
-            line.className = "budget-line";
-
-            addText("span", label, line);
-            addText(
-                "span",
-                formatRupees(data.budget_breakdown?.[key]),
-                line
-            );
-
-            breakdownBox.appendChild(line);
-        });
-
-        result.appendChild(breakdownBox);
-
-        // Budget Doughnut Chart
-        if (window.Chart && data.budget_breakdown) {
-            const chartWrapper = document.createElement("div");
-            chartWrapper.className = "budget-chart-box";
-
-            const canvas = document.createElement("canvas");
-            chartWrapper.appendChild(canvas);
-            result.appendChild(chartWrapper);
-
-            new Chart(canvas, {
-                type: "doughnut",
-                data: {
-                    labels: ["Transport", "Accommodation", "Food", "Activities", "Misc"],
-                    datasets: [{
-                        data: [
-                            data.budget_breakdown.transport || 0,
-                            data.budget_breakdown.accommodation || 0,
-                            data.budget_breakdown.food || 0,
-                            data.budget_breakdown.activities || 0,
-                            data.budget_breakdown.miscellaneous || 0
-                        ],
-                        backgroundColor: [
-                            "#123b67",
-                            "#0d9488",
-                            "#2563eb",
-                            "#f59e0b",
-                            "#64748b"
-                        ],
-                        borderWidth: 2,
-                        borderColor: "#ffffff"
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: "bottom"
-                        }
-                    }
-                }
-            });
-        }
-
-        // Day-by-day plan and estimated daily cost
-        addText("h3", "🗓️ Your Day-by-Day Itinerary");
-
-        data.itinerary.forEach(function (day) {
-            const section = document.createElement("section");
-            section.className = "itinerary-day";
-
-            addText("h3", `Day ${day.day}`, section);
-            addText("p", day.plan, section);
-            addText(
-                "p",
-                `Estimated cost for this day: ${formatRupees(day.estimated_cost)}`,
-                section,
-                "day-cost"
-            );
-
-            result.appendChild(section);
-        });
-
-        addText("h3", "📌 Helpful travel note");
-        addText(
-            "p",
-            data.note ||
-            "Verify transport, accommodation and attraction costs before departure."
-        );
-
-        addText(
-            "p",
-            "Final costs may change with season, availability, transport choices and actual bookings."
-        );
-
-        // Load weather after the itinerary is generated.
-            loadDestinationWeather(data.destination, startDate, endDate);
-
-        result.scrollIntoView({
-            behavior: "smooth",
-            block: "start"
-        });
-
-
-// Hotel recommendations
-addText("h3", "🏨 Recommended Hotels");
-
-const hotelsBox = document.createElement("div");
-hotelsBox.className = "recommendation-grid";
-
-(data.hotels || []).forEach(function (hotel) {
-    const card = document.createElement("div");
-    card.className = "recommendation-card";
-
-    addText("h3", hotel.name || "Accommodation option", card);
-    addText("p", hotel.type || "Stay option", card);
-    addText("p", "📍 " + (hotel.location || "Location not specified"), card);
-    addText(
-        "strong",
-        "Approx. ₹" + Number(hotel.price_per_night || 0).toLocaleString("en-IN") + " / night",
-        card
-    );
-    addText("p", hotel.description || "", card);
-
-    const mapLink = document.createElement("a");
-    mapLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((hotel.name || "") + " " + data.destination)}`;
-    mapLink.target = "_blank";
-    mapLink.rel = "noopener noreferrer";
-    mapLink.className = "map-link-btn";
-    mapLink.textContent = "🗺️ View on Google Maps ↗";
-    card.appendChild(mapLink);
-    hotelsBox.appendChild(card);
-});
-
-result.appendChild(hotelsBox);
-
-// Transport recommendations
-addText("h3", "🚆 Transport Recommendations");
-
-const transportBox = document.createElement("div");
-transportBox.className = "recommendation-grid";
-
-(data.transport_options || []).forEach(function (option) {
-    const card = document.createElement("div");
-    card.className = "recommendation-card";
-
-    addText("h3", option.mode || "Transport option", card);
-    addText("p", "Route: " + (option.route || "Not specified"), card);
-    addText(
-        "strong",
-        "Approx. ₹" +
-        Number(option.estimated_fare_per_person || 0).toLocaleString("en-IN") +
-        " / person",
-        card
-    );
-    addText("p", "Travel time: " + (option.travel_time || "Not specified"), card);
-    addText("p", option.description || "", card);
-
-    transportBox.appendChild(card);
-});
-
-result.appendChild(transportBox);
-
-addText(
-    "p",
-    "Hotel and transport prices are approximate AI-generated estimates. Verify actual prices, schedules and availability before booking."
-);
- 
-// Smart Packing Checklist
-if (Array.isArray(data.packing_list) && data.packing_list.length > 0) {
-    addText("h3", "🎒 Smart Packing Checklist");
-    addText("p", "Tap items to check them off as you pack:");
-
-    const packingBox = document.createElement("div");
-    packingBox.className = "packing-grid";
-
-    data.packing_list.forEach(function (itemText) {
-        const label = document.createElement("label");
-        label.className = "packing-item";
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-
-        const span = document.createElement("span");
-        span.textContent = itemText;
-
-        checkbox.addEventListener("change", function () {
-            label.classList.toggle("checked", checkbox.checked);
-        });
-
-        label.append(checkbox, span);
-        packingBox.appendChild(label);
-    });
-
-    result.appendChild(packingBox);
-}        
-      // Add PDF download button
-      const pdfButton = document.createElement("button");
-      pdfButton.textContent = "📄 Download Trip Plan as PDF";
-      pdfButton.className = "pdf-download-btn";
-
-     
-pdfButton.addEventListener("click", function () {
-    if (!window.jspdf) {
-        showError("PDF library is not loaded. Please refresh the page.");
-        return;
-    }
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF("p", "mm", "a4");
-
-    const pageWidth = 210;
-    const pageHeight = 297;
-    const margin = 18;
-    const contentWidth = pageWidth - margin * 2;
-    let y = 20;
-
-    // Clean text: remove emojis and unwanted characters
-    function cleanText(value) {
-        return String(value ?? "")
-            .replace(/[^\x20-\x7E\xA0-\xFF]/g, "")
-            .replace(/\s+/g, " ")
-            .trim();
-    }
-
-    function money(value) {
-        const number = Number(value);
-        return Number.isFinite(number)
-            ? "INR " + number.toLocaleString("en-IN")
-            : "Not available";
-    }
-
-    function checkPageSpace(height) {
-        if (y + height > pageHeight - 20) {
-            doc.addPage();
-            y = 22;
-        }
-    }
-
-    function heading(title) {
-        checkPageSpace(18);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(14);
-        doc.setTextColor(25, 65, 115);
-        doc.text(title, margin, y);
-        y += 9;
-
-        doc.setDrawColor(210, 220, 235);
-        doc.line(margin, y, pageWidth - margin, y);
-        y += 7;
-    }
-
-    function paragraph(text, fontSize = 10) {
-        const lines = doc.splitTextToSize(
-            cleanText(text),
-            contentWidth
-        );
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(fontSize);
-        doc.setTextColor(65, 65, 65);
-
-        lines.forEach(line => {
-            checkPageSpace(6);
-            doc.text(line, margin, y);
-            y += 5.5;
-        });
-
-        y += 3;
-    }
-
-    function budgetCard(label, value, x, cardY, width) {
-        doc.setFillColor(239, 245, 253);
-        doc.roundedRect(x, cardY, width, 25, 3, 3, "F");
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        doc.setTextColor(80, 90, 105);
-        doc.text(label, x + 5, cardY + 8);
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(12);
-        doc.setTextColor(25, 65, 115);
-        doc.text(money(value), x + 5, cardY + 18);
-    }
-
-    // ---------- HEADER ----------
-    doc.setFillColor(24, 67, 125);
-    doc.rect(0, 0, pageWidth, 43, "F");
-
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(23);
-    doc.text("WanderAI", margin, 19);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text("YOUR PERSONAL TRAVEL PLAN", margin, 28);
-
-    doc.setFontSize(9);
-    doc.text("AI Travel Planner", pageWidth - margin, 28, {
-        align: "right"
-    });
-
-    y = 55;
-
-    // ---------- TRIP DETAILS ----------
-    heading("TRIP OVERVIEW");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(17);
-    doc.setTextColor(30, 45, 65);
-
-    const destination = cleanText(data.destination);
-    doc.text(
-        `${cleanText(data.days)}-Day Trip to ${destination}`,
-        margin,
-        y
-    );
-    y += 9;
-
-    paragraph(
-        `${data.travel_with} trip | ${data.travelers} traveller(s) | ${data.interest}`
-    );
-
-    paragraph(`Preferred travel style: ${data.travel_style}`);
-
-    // ---------- BUDGET SUMMARY ----------
-    heading("ESTIMATED TRIP BUDGET");
-
-    const gap = 5;
-    const cardWidth = (contentWidth - gap) / 2;
-
-    budgetCard(
-        "TOTAL GROUP COST",
-        data.estimated_budget,
-        margin,
-        y,
-        cardWidth
-    );
-
-    budgetCard(
-        "COST PER PERSON",
-        data.estimated_per_person,
-        margin + cardWidth + gap,
-        y,
-        cardWidth
-    );
-
-    y += 34;
-
-    paragraph(
-        "These are AI-generated planning estimates, not live booking prices.",
-        9
-    );
-
-    // ---------- BUDGET BREAKDOWN ----------
-    heading("BUDGET BREAKDOWN");
-
-    const categories = [
-        ["Transport", "transport"],
-        ["Accommodation", "accommodation"],
-        ["Food", "food"],
-        ["Activities and sightseeing", "activities"],
-        ["Miscellaneous", "miscellaneous"]
-    ];
-
-    categories.forEach(([label, key]) => {
-        const value = data.budget_breakdown?.[key];
-
-        checkPageSpace(10);
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
-        doc.setTextColor(65, 65, 65);
-        doc.text(label, margin, y);
-
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(25, 65, 115);
-
-        const amount = value == null ? "Not available" : money(value);
-
-        doc.text(
-            amount,
-            pageWidth - margin,
-            y,
-            { align: "right" }
-        );
-
-        doc.setDrawColor(230, 230, 230);
-        doc.line(margin, y + 3, pageWidth - margin, y + 3);
-
-        y += 10;
-    });
-
-    // ---------- DAILY ITINERARY ----------
-    heading("YOUR DAY-BY-DAY ITINERARY");
-
-    (data.itinerary || []).forEach(day => {
-        checkPageSpace(28);
-
-        // Day heading background
-        doc.setFillColor(232, 241, 252);
-        doc.roundedRect(
-            margin,
-            y - 5,
-            contentWidth,
-            11,
-            2,
-            2,
-            "F"
-        );
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(25, 65, 115);
-
-        doc.text(`DAY ${day.day}`, margin + 4, y + 2);
-        y += 14;
-
-        paragraph(day.plan || "Explore the destination and nearby attractions.");
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(9);
-        doc.setTextColor(50, 100, 70);
-
-        const dailyCost = money(day.estimated_cost);
-        checkPageSpace(8);
-
-        doc.text(
-            `Estimated daily cost: ${dailyCost}`,
-            margin,
-            y
-        );
-
-        y += 11;
-    });
-
-    // ---------- RECOMMENDED HOTELS ----------
-    if (Array.isArray(data.hotels) && data.hotels.length > 0) {
-        heading("RECOMMENDED HOTELS");
-        data.hotels.forEach(hotel => {
-            checkPageSpace(22);
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(11);
-            doc.setTextColor(25, 65, 115);
-            doc.text(`${cleanText(hotel.name)} (${cleanText(hotel.type)})`, margin, y);
-            y += 6;
-            paragraph(`Location: ${hotel.location} | Approx: ${money(hotel.price_per_night)} / night\n${hotel.description}`);
-        });
-    }
-
-    // ---------- TRANSPORT OPTIONS ----------
-    if (Array.isArray(data.transport_options) && data.transport_options.length > 0) {
-        heading("TRANSPORT RECOMMENDATIONS");
-        data.transport_options.forEach(opt => {
-            checkPageSpace(22);
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(11);
-            doc.setTextColor(25, 65, 115);
-            doc.text(`${cleanText(opt.mode)} (${cleanText(opt.route)})`, margin, y);
-            y += 6;
-            paragraph(`Fare: ${money(opt.estimated_fare_per_person)} / person | Time: ${opt.travel_time}\n${opt.description}`);
-        });
-    }
-
-    // ---------- TRAVEL NOTE ----------
-    heading("HELPFUL TRAVEL NOTE");
-
-    paragraph(
-        data.note ||
-        "Verify transport, accommodation and attraction costs before departure."
-    );
-
-    paragraph(
-        "Final costs may change depending on season, availability, transport choices and actual bookings.",
-        9
-    );
-
-    // ---------- FOOTER ON EVERY PAGE ----------
-    const totalPages = doc.getNumberOfPages();
-
-    for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-
-        doc.setDrawColor(210, 220, 230);
-        doc.line(
-            margin,
-            pageHeight - 15,
-            pageWidth - margin,
-            pageHeight - 15
-        );
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.setTextColor(120, 120, 120);
-
-        doc.text(
-            "Generated by WanderAI | Travel smart, travel better",
-            margin,
-            pageHeight - 9
-        );
-
-        doc.text(
-            `Page ${i} of ${totalPages}`,
-            pageWidth - margin,
-            pageHeight - 9,
-            { align: "right" }
-        );
-    }
-
-    doc.save("WanderAI-Trip-Plan.pdf");
-});
-
-/*
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 18;
-    const maxWidth = pageWidth - margin * 2;
-    let y = 20;
-
-    // Clean and readable text
-    const cleanText = (text) => text
-        .replace(/\r/g, "")
-        .replace(/₹/g, "Rs. ")
-        .replace(/[✈️💰🗺️📌📄🌿🏨🍽️🚕🎯⭐]/gu, "")
-        .replace(/[^\x00-\x7F]/g, "")
-        .trim();
-
-    // Add text with automatic page breaks
-    function addText(text, options = {}) {
-        const {
-            size = 10,
-            bold = false,
-            color = [55, 65, 81],
-            gap = 5,
-            indent = 0
-        } = options;
-
-        const cleaned = cleanText(text);
-        if (!cleaned) return;
-
-        doc.setFont("helvetica", bold ? "bold" : "normal");
-        doc.setFontSize(size);
-        doc.setTextColor(...color);
-
-        const lines = doc.splitTextToSize(
-            cleaned,
-            maxWidth - indent
-        );
-
-        const lineHeight = size * 0.48;
-
-        lines.forEach((line) => {
-            if (y + lineHeight > pageHeight - 18) {
-                doc.addPage();
-                y = 20;
-            }
-
-            doc.text(line, margin + indent, y);
-            y += lineHeight;
-        });
-
-        y += gap;
-    }
-
-    // Header banner
-    doc.setFillColor(20, 55, 95);
-    doc.rect(0, 0, pageWidth, 39, "F");
-
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(23);
-    doc.text("WanderAI", margin, 17);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text("YOUR PERSONAL TRAVEL PLAN", margin, 26);
-
-    y = 49;
-
-    // Read trip details from the result section
-    const pdfContent = result.cloneNode(true);
-
-    pdfContent.querySelectorAll(".pdf-download-btn").forEach(
-        button => button.remove()
-    );
-
-    // Remove emojis to avoid unsupported font characters
-    const content = cleanText(pdfContent.innerText)
-        .replace(/Your Personal Travel Plan/g, "")
-        .replace(/\n{3,}/g, "\n\n");
-
-    const lines = content
-        .split("\n")
-        .map(line => line.trim())
-        .filter(Boolean);
-
-    const headingPattern =
-        /Trip to|Estimated Trip Budget|Where your money|Day-by-Day Itinerary|Helpful travel note|Day \d+/i;
-
-    lines.forEach((line) => {
-        const isHeading = headingPattern.test(line);
-
-        if (isHeading) {
-            y += 2;
-
-            if (y > pageHeight - 25) {
-                doc.addPage();
-                y = 20;
-            }
-
-            addText(line, {
-                size: 13,
-                bold: true,
-                color: [20, 55, 95],
-                gap: 4
-            });
-
-            // Divider under section headings
-            doc.setDrawColor(220, 228, 238);
-            doc.setLineWidth(0.35);
-            doc.line(margin, y - 2, pageWidth - margin, y - 2);
-        } else {
-            addText(line, {
-                size: 10,
-                color: [55, 65, 81],
-                gap: 3,
-                indent: 2
-            });
-        }
-    });
-
-    // Footer with page numbers
-    const totalPages = doc.internal.getNumberOfPages();
-
-    for (let page = 1; page <= totalPages; page++) {
-        doc.setPage(page);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.setTextColor(120, 130, 145);
-
-        doc.text(
-            "WanderAI | Estimated prices - verify before booking",
-            margin,
-            pageHeight - 8
-        );
-
-        doc.text(
-            "Page " + page + " of " + totalPages,
-            pageWidth - margin,
-            pageHeight - 8,
-            { align: "right" }
-        );
-    }
-
-    doc.save("WanderAI-Trip-Plan.pdf");
-    });
-*/
-
-result.appendChild(pdfButton);
-
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not generate travel plan.");
+        renderTripResult(data, startDate, endDate);
     } catch (error) {
-        console.error("Travel planner error:", error);
-        showError(error.message || "Something went wrong. Please try again.");
+        showError(error.message || "Something went wrong.");
     } finally {
         button.disabled = false;
         button.innerHTML = 'Generate my AI travel plan <span>✦</span>';
-        result.setAttribute("aria-busy", "false");
     }
 });
+
+// Initialize login check on page load
+refreshAuthStatus();

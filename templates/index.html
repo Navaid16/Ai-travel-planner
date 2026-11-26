@@ -4,14 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#123b67">
-    <meta name="description" content="Plan personalized trips with AI-powered destination recommendations, budgets and itineraries.">
-
-    <title>WanderAI | Smart Travel Planner</title>
-
+    <meta name="description" content="Plan personalized trips with AI-powered itineraries, budgets, hotel & flight/train booking, and live weather.">
+    <title>WanderAI | Smart Travel Planner & Booking</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -21,22 +18,50 @@
             <span class="brand-icon">✈</span>
             <span>Wander<span class="brand-highlight">AI</span></span>
         </a>
-        <span class="header-tag">Your journey, intelligently planned</span>
+
+        <nav class="header-nav">
+            <a href="#destinations" class="nav-link">Destinations</a>
+            <a href="#planner" class="nav-link">Plan Trip</a>
+            <button type="button" id="navHistoryBtn" class="nav-link nav-btn">🧳 My Trips</button>
+            <button type="button" id="navContactBtn" class="nav-link nav-btn">📞 Contact</button>
+            <button type="button" id="navAuthBtn" class="auth-pill-btn">Login / Sign Up</button>
+        </nav>
     </header>
 
     <main>
         <section class="hero">
             <div class="hero-content">
-                <span class="eyebrow">✦ YOUR PERSONAL AI TRAVEL ASSISTANT</span>
+                <span class="eyebrow">✦ YOUR PERSONAL AI TRAVEL & BOOKING ASSISTANT</span>
                 <h1>Discover places.<br><span>Collect memories.</span></h1>
-                <p>Choose your vibe, pick your destination, and let AI plan your perfect trip with a personalized itinerary and estimated budget.</p>
-                <a href="#planner" class="hero-button">Plan my trip <span>↓</span></a>
+                <p>Plan your trip with AI, compare hotels, search live trains & flights, check weather forecasts, and book seamlessly—all in one place.</p>
+                <div class="hero-actions">
+                    <a href="#planner" class="hero-button">Plan my trip <span>↓</span></a>
+                    <button type="button" id="heroHistoryBtn" class="hero-secondary-btn">View Saved Trips</button>
+                </div>
             </div>
 
             <div class="hero-image" role="img" aria-label="Scenic mountain travel destination">
                 <div class="hero-image-caption">
                     <span>YOUR NEXT ADVENTURE</span>
                     <strong>Somewhere beautiful awaits.</strong>
+                </div>
+            </div>
+        </section>
+
+        <!-- QUICK MMT-STYLE SEARCH BAR FOR TRAINS / FLIGHTS / HOTELS -->
+        <section class="quick-booking-bar">
+            <div class="qb-header">
+                <span class="eyebrow">INSTANT TRAVEL SEARCH</span>
+                <h3>Search Live Trains, Flights & Hotels</h3>
+            </div>
+            <div class="qb-grid">
+                <input type="text" id="qbFrom" placeholder="From City (e.g. Delhi)">
+                <input type="text" id="qbTo" placeholder="To City (e.g. Manali, Goa)">
+                <input type="date" id="qbDate">
+                <div class="qb-buttons">
+                    <button type="button" id="searchTrainsBtn" class="qb-btn train-btn">🚆 Search Trains</button>
+                    <button type="button" id="searchFlightsBtn" class="qb-btn flight-btn">✈️ Search Flights</button>
+                    <button type="button" id="searchHotelsBtn" class="qb-btn hotel-btn">🏨 Search Hotels</button>
                 </div>
             </div>
         </section>
@@ -105,38 +130,24 @@
                     </span>
                 </button>
             </div>
-            <p class="image-disclaimer">Destination photos load from Unsplash. Internet access is required to view them.</p>
         </section>
 
         <section class="planner-section" id="planner">
             <div class="planner-intro">
                 <span class="eyebrow">LET'S BUILD YOUR TRIP</span>
                 <h2>Your next adventure starts here.</h2>
-                <p>Tell us what you like. AI will suggest a trip and estimate the cost for your group—no budget input needed.</p>
+                <p>Tell us what you like. AI will suggest a trip, estimate costs, and unlock booking options—no budget input needed.</p>
             </div>
 
             <form id="travelForm">
                 <div class="form-field">
                     <label for="startCity">Starting City</label>
-                    <input
-                        type="text"
-                        id="startCity"
-                        placeholder="e.g. Ghaziabad, Delhi, Lucknow"
-                        maxlength="100"
-                        required
-                    >
+                    <input type="text" id="startCity" placeholder="e.g. Ghaziabad, Delhi, Lucknow" maxlength="100" required>
                 </div>
 
                 <div class="form-field">
                     <label for="destination">Where do you want to go?</label>
-                    <input
-                        type="text"
-                        id="destination"
-                        list="destinationOptions"
-                        placeholder="Choose above or type a city..."
-                        autocomplete="off"
-                        required
-                    >
+                    <input type="text" id="destination" list="destinationOptions" placeholder="Choose above or type a city..." autocomplete="off" required>
                     <datalist id="destinationOptions">
                         <option value="Manali"></option>
                         <option value="Goa"></option>
@@ -209,23 +220,155 @@
                     <h2>🌤️ Weather Forecast</h2>
                     <p id="weatherLocation">Checking destination weather...</p>
                 </div>
-
                 <div id="weatherCurrent" class="weather-current"></div>
                 <div id="weatherAlert" class="weather-alert" hidden></div>
-
                 <h3 class="forecast-title">Trip Forecast</h3>
                 <div id="weatherForecast" class="weather-forecast"></div>
-
-                <p class="weather-disclaimer">
-                    Weather information is forecast data and may change. It is not an official weather warning.
-                </p>
+                <p class="weather-disclaimer">Weather information is forecast data and may change.</p>
             </section>
         </section>
     </main>
 
+    <!-- AUTH MODAL (LOGIN / SIGNUP) -->
+    <div id="authModal" class="modal-backdrop" hidden>
+        <div class="modal-box">
+            <button type="button" class="modal-close" data-close="authModal">✕</button>
+            <h2 id="authModalTitle">Welcome to WanderAI</h2>
+            <p id="authModalSub" class="modal-sub">Login to save your travel history and manage bookings.</p>
+
+            <div id="loggedInPanel" hidden>
+                <p class="user-badge" id="loggedInUserInfo"></p>
+                <button type="button" id="logoutBtn" class="secondary-danger-btn">Logout</button>
+            </div>
+
+            <form id="authForm">
+                <div class="form-field" id="authNameGroup" hidden>
+                    <label for="authName">Full Name</label>
+                    <input type="text" id="authName" placeholder="Enter your name">
+                </div>
+                <div class="form-field">
+                    <label for="authEmail">Email Address</label>
+                    <input type="email" id="authEmail" placeholder="you@example.com" required>
+                </div>
+                <div class="form-field">
+                    <label for="authPassword">Password</label>
+                    <input type="password" id="authPassword" placeholder="Minimum 4 characters" required>
+                </div>
+                <p id="authMsg" class="modal-msg"></p>
+                <button type="submit" id="authSubmitBtn" class="primary-button full-width">Login</button>
+                <p class="modal-switch">
+                    <span id="authSwitchText">Don't have an account?</span>
+                    <button type="button" id="authToggleModeBtn" class="link-btn">Sign Up</button>
+                </p>
+            </form>
+        </div>
+    </div>
+
+    <!-- TRAVEL HISTORY MODAL -->
+    <div id="historyModal" class="modal-backdrop" hidden>
+        <div class="modal-box modal-wide">
+            <button type="button" class="modal-close" data-close="historyModal">✕</button>
+            <h2>🧳 My Travel History</h2>
+            <p class="modal-sub">Your saved AI trip plans and booking statuses.</p>
+            <div id="historyList" class="history-list"></div>
+        </div>
+    </div>
+
+    <!-- PAYMENT CHECKOUT MODAL -->
+    <div id="paymentModal" class="modal-backdrop" hidden>
+        <div class="modal-box">
+            <button type="button" class="modal-close" data-close="paymentModal">✕</button>
+            <span class="eyebrow">SECURE INSTANT CHECKOUT</span>
+            <h2>💳 Complete Your Booking</h2>
+            <div class="payment-summary-box">
+                <strong id="payItemTitle">Trip Package</strong>
+                <span id="payItemAmount" class="pay-amount">₹0</span>
+            </div>
+
+            <form id="paymentForm">
+                <div class="payment-tabs">
+                    <label class="pay-option">
+                        <input type="radio" name="payMethod" value="UPI (GPay / PhonePe / Paytm)" checked>
+                        <span>📱 UPI (GPay / PhonePe / Paytm)</span>
+                    </label>
+                    <label class="pay-option">
+                        <input type="radio" name="payMethod" value="Credit / Debit Card">
+                        <span>💳 Credit / Debit Card</span>
+                    </label>
+                    <label class="pay-option">
+                        <input type="radio" name="payMethod" value="Net Banking">
+                        <span>🏦 Net Banking</span>
+                    </label>
+                </div>
+
+                <div class="form-field" style="margin-top:12px;">
+                    <label for="payDetailsInput">UPI ID or Card Number</label>
+                    <input type="text" id="payDetailsInput" placeholder="e.g. traveler@okicici or 4532 XXXX XXXX 1234" required>
+                </div>
+
+                <p id="paymentMsg" class="modal-msg"></p>
+                <button type="submit" class="primary-button full-width" style="margin-top:12px;">
+                    Pay &amp; Confirm Booking ✦
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- CONTACT US MODAL -->
+    <div id="contactModal" class="modal-backdrop" hidden>
+        <div class="modal-box">
+            <button type="button" class="modal-close" data-close="contactModal">✕</button>
+            <h2>📞 Contact WanderAI Support</h2>
+            <p class="modal-sub">Need help with custom packages, group bookings, or feedback? Write to us.</p>
+            <form id="contactForm">
+                <div class="form-field">
+                    <label for="contactName">Your Name</label>
+                    <input type="text" id="contactName" placeholder="Full Name" required>
+                </div>
+                <div class="form-field">
+                    <label for="contactEmail">Email Address</label>
+                    <input type="email" id="contactEmail" placeholder="you@example.com" required>
+                </div>
+                <div class="form-field">
+                    <label for="contactSubject">Subject</label>
+                    <select id="contactSubject">
+                        <option value="Booking Support">Booking &amp; Payment Support</option>
+                        <option value="Custom Trip Request">Custom Group Trip Request</option>
+                        <option value="Feedback">App Feedback</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label for="contactMessage">Message</label>
+                    <textarea id="contactMessage" rows="3" placeholder="How can we help you?" required></textarea>
+                </div>
+                <p id="contactMsg" class="modal-msg"></p>
+                <button type="submit" class="primary-button full-width" style="margin-top:10px;">Send Message</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- FLOATING HELP AI CHAT WIDGET -->
+    <button type="button" id="helpAiToggle" class="help-ai-fab" title="Ask WanderAI Travel Assistant">
+        🤖 Help AI
+    </button>
+
+    <div id="helpAiBox" class="help-ai-window" hidden>
+        <div class="help-ai-header">
+            <span>🤖 WanderAI Travel Help</span>
+            <button type="button" id="helpAiClose" class="help-ai-close">✕</button>
+        </div>
+        <div id="helpAiMessages" class="help-ai-messages">
+            <div class="ai-msg">Hi! I'm your WanderAI assistant. Ask me anything about destinations, best seasons, IRCTC trains, or budget tips!</div>
+        </div>
+        <form id="helpAiForm" class="help-ai-form">
+            <input type="text" id="helpAiInput" placeholder="Ask a travel question..." required>
+            <button type="submit">Send</button>
+        </form>
+    </div>
+
     <footer class="site-footer">
-        <p>✈ WanderAI — Plan smarter. Travel better.</p>
-        <p>AI-generated itineraries and costs are estimates, not live booking quotes.</p>
+        <p>✈ WanderAI — Plan smarter. Travel better. Book faster.</p>
+        <p>AI-generated itineraries and costs are estimates. Contact: support@wanderai.in | Helpline: 1800-112-2026</p>
     </footer>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
