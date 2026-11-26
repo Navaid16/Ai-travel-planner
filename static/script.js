@@ -53,33 +53,54 @@ async function loadDestinationWeather(city, startDate, endDate) {
     locationText.textContent = "Checking weather for " + city + "...";
 
     try {
-        // Step 1: Find destination coordinates.
-        const geoUrl = new URL(
-            "https://geocoding-api.open-meteo.com/v1/search"
-        );
+        // Step 1: Popular tourist destinations ke exact coordinates + baaki cities ke liye API search
+        const knownDestinations = {
+            "goa": { name: "Goa", admin1: "India", latitude: 15.2993, longitude: 74.1240 },
+            "manali": { name: "Manali", admin1: "Himachal Pradesh", latitude: 32.2432, longitude: 77.1892 },
+            "jaipur": { name: "Jaipur", admin1: "Rajasthan", latitude: 26.9124, longitude: 75.7873 },
+            "rishikesh": { name: "Rishikesh", admin1: "Uttarakhand", latitude: 30.0869, longitude: 78.2676 },
+            "agra": { name: "Agra", admin1: "Uttar Pradesh", latitude: 27.1767, longitude: 78.0081 },
+            "srinagar": { name: "Srinagar", admin1: "Jammu & Kashmir", latitude: 34.0837, longitude: 74.7973 },
+            "shimla": { name: "Shimla", admin1: "Himachal Pradesh", latitude: 31.1048, longitude: 77.1734 },
+            "udaipur": { name: "Udaipur", admin1: "Rajasthan", latitude: 24.5854, longitude: 73.7125 },
+            "munnar": { name: "Munnar", admin1: "Kerala", latitude: 10.0889, longitude: 77.0595 },
+            "ooty": { name: "Ooty", admin1: "Tamil Nadu", latitude: 11.4102, longitude: 76.6950 },
+            "darjeeling": { name: "Darjeeling", admin1: "West Bengal", latitude: 27.0410, longitude: 88.2663 },
+            "varanasi": { name: "Varanasi", admin1: "Uttar Pradesh", latitude: 25.3176, longitude: 82.9739 }
+        };
 
-        geoUrl.search = new URLSearchParams({
-            name: city,
-            count: "5",
-            language: "en",
-            format: "json",
-            countryCode: "IN"
-        });
+        const normalizedCity = city.trim().toLowerCase();
+        let place = knownDestinations[normalizedCity];
 
-        const geoResponse = await fetch(geoUrl);
-        if (!geoResponse.ok) {
-            throw new Error("Unable to find destination.");
+        if (!place) {
+            const geoUrl = new URL(
+                "https://geocoding-api.open-meteo.com/v1/search"
+            );
+
+            geoUrl.search = new URLSearchParams({
+                name: city,
+                count: "5",
+                language: "en",
+                format: "json",
+                countryCode: "IN"
+            });
+
+            const geoResponse = await fetch(geoUrl);
+
+            if (!geoResponse.ok) {
+                throw new Error("Unable to find destination.");
+            }
+
+            const geoData = await geoResponse.json();
+
+            if (!geoData.results || geoData.results.length === 0) {
+                throw new Error("Destination not found. Try a city name.");
+            }
+
+            place = geoData.results.sort(
+                (a, b) => (b.population || 0) - (a.population || 0)
+            )[0];
         }
-
-        const geoData = await geoResponse.json();
-        if (!geoData.results || geoData.results.length === 0) {
-            throw new Error("Destination not found. Try a city name.");
-        }
-
-        // Sabse bada city/state pick karein taaki chhote gaon na aayein
-        const place = geoData.results.sort(
-            (a, b) => (b.population || 0) - (a.population || 0)
-        )[0];
 
         // Step 2: Check whether selected dates are within forecast range.
         const today = new Date();
