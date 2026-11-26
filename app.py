@@ -270,30 +270,41 @@ def help_ai():
     if not question:
         return jsonify({"error": "Please ask a question."}), 400
 
-    prompt = f"""
-You are WanderAI Help Assistant, a friendly Indian travel advisor.
-Answer the user's travel question clearly, concisely (under 90 words), and practically in Indian context (use INR if mentioning money).
-User Question: {question}
-"""
+    prompt = (
+        "You are WanderAI Help Assistant, a friendly Indian travel advisor. "
+        "Answer the user's travel question clearly, concisely (under 90 words), "
+        "and practically in Indian context (use INR if mentioning money).\n"
+        f"User Question: {question}"
+    )
+
     try:
-        if client is None:
-            raise ValueError("API key missing")
-        response = client.models.generate_content(
+        current_key = os.getenv("GEMINI_API_KEY")
+        if not current_key:
+            raise ValueError("GEMINI_API_KEY is not set in environment.")
+        ai_client = genai.Client(api_key=current_key)
+        response = ai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt
         )
         answer = (response.text or "").strip()
         if not answer:
-            raise ValueError("Empty response")
+            raise ValueError("Empty response from Gemini.")
         return jsonify({"reply": answer})
-    except Exception:
-        return jsonify({
-            "reply": (
-                "Tip: For budget Indian trips, book IRCTC trains 30–60 days early, "
-                "choose homestays/hostels near local transit, and travel during shoulder seasons "
-                "(Feb–Mar or Sep–Nov) for the best weather and hotel rates!"
+    except Exception as e:
+        app.logger.error("Help AI error: %s", e)
+        q_lower = question.lower()
+        if "manali" in q_lower:
+            reply = "Best time to visit Manali is March–June for pleasant weather and sightseeing, or December–February for snowfall and winter sports. Budget around ₹6,000–₹10,000 per person for a 3-day trip."
+        elif "goa" in q_lower:
+            reply = "Best time to visit Goa is November–February for beach weather and nightlife. Book flights/trains 45 days early and budget ₹8,000–₹15,000 per person for 3–4 days."
+        elif "jaipur" in q_lower:
+            reply = "October–March is ideal for Jaipur due to cool weather. Cover Amer Fort, Hawa Mahal, and City Palace in 2–3 days with an estimated budget of ₹5,000–₹9,000 per person."
+        else:
+            reply = (
+                "For Indian trips, October–March is best for plains/beaches and March–June for hill stations. "
+                "Book IRCTC trains 30–60 days early and compare Budget vs Balanced stays in the planner above!"
             )
-        })
+        return jsonify({"reply": reply})
 
 
 # ---------------- CONTACT US ROUTE ----------------
