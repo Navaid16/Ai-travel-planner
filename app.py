@@ -229,14 +229,18 @@ Return ONLY a JSON object matching this exact structure:
             daily_base = round(estimated_budget / days, 2)
             itinerary = []
 
+            day_templates = [
+                f"Morning: Arrive in {destination} and check in to your stay. Afternoon: Explore the main town center and try local food. Evening: Relax at a scenic viewpoint or popular promenade.",
+                f"Morning: Visit top {interest.lower()} landmarks and heritage spots in {destination}. Afternoon: Enjoy guided sightseeing and local cuisine. Evening: Stroll through the bustling local market for souvenirs.",
+                f"Morning: Take a short excursion to nearby scenic valleys or hidden gems around {destination}. Afternoon: Participate in {interest.lower()} experiences and photography. Evening: Unwind at a cozy local cafe.",
+                f"Morning: Leisurely breakfast and visit a famous temple, museum, or park in {destination}. Afternoon: Last-minute shopping and local delicacies. Evening: Pack up and prepare for departure back to {start_city}."
+            ]
+
             for day in range(1, days + 1):
+                plan_text = day_templates[(day - 1) % len(day_templates)]
                 itinerary.append({
                     "day": day,
-                    "plan": (
-                        f"Morning: Explore {destination} and nearby attractions. "
-                        f"Afternoon: Enjoy activities related to {interest}. "
-                        f"Evening: Visit a local market or relax."
-                    ),
+                    "plan": plan_text,
                     "estimated_cost": daily_base
                 })
 
