@@ -293,16 +293,30 @@ def help_ai():
     except Exception as e:
         app.logger.error("Help AI error: %s", e)
         q_lower = question.lower()
-        if "manali" in q_lower:
-            reply = "Best time to visit Manali is March–June for pleasant weather and sightseeing, or December–February for snowfall and winter sports. Budget around ₹6,000–₹10,000 per person for a 3-day trip."
+        if any(w in q_lower for w in ["food", "meal", "eat", "dish", "cafe", "restaurant"]):
+            reply = (
+                "Must-try local dishes depend on your stop: in Manali/Himachal try Siddu, Trout fish & Tibetan Thukpa; "
+                "in Goa try Fish Curry Rice & Bebinca; in Jaipur try Dal Baati Churma & Laal Maas. "
+                "Local dhabas and cafes cost around ₹150–₹400 per meal."
+            )
+        elif any(w in q_lower for w in ["hotel", "stay", "resort", "hostel"]):
+            reply = (
+                "For stays, hostels/homestays cost ₹800–₹1,500/night (Budget), 3-star hotels cost ₹2,200–₹4,000/night (Balanced), "
+                "and resorts cost ₹5,500+/night (Luxury). Generate a trip plan above to see specific hotel cards with Maps!"
+            )
+        elif any(w in q_lower for w in ["place", "visit", "sightseeing", "attraction", "do"]):
+            reply = (
+                "Top highlights: Manali (Solang Valley, Hadimba Temple, Old Manali), Goa (Baga, Fort Aguada, Palolem), "
+                "Jaipur (Amer Fort, Hawa Mahal, City Palace). Enter your destination in the planner above for a full day-by-day schedule!"
+            )
+        elif "manali" in q_lower:
+            reply = "Best time to visit Manali is March–June for pleasant weather and sightseeing, or December–February for snowfall. Budget around ₹6,000–₹10,000 per person for 3 days."
         elif "goa" in q_lower:
-            reply = "Best time to visit Goa is November–February for beach weather and nightlife. Book flights/trains 45 days early and budget ₹8,000–₹15,000 per person for 3–4 days."
-        elif "jaipur" in q_lower:
-            reply = "October–March is ideal for Jaipur due to cool weather. Cover Amer Fort, Hawa Mahal, and City Palace in 2–3 days with an estimated budget of ₹5,000–₹9,000 per person."
+            reply = "Best time to visit Goa is November–February for beach weather. Budget ₹8,000–₹15,000 per person for 3–4 days."
         else:
             reply = (
-                "For Indian trips, October–March is best for plains/beaches and March–June for hill stations. "
-                "Book IRCTC trains 30–60 days early and compare Budget vs Balanced stays in the planner above!"
+                "For Indian trips, October–March is ideal for plains/beaches and March–June for hill stations. "
+                "Book IRCTC trains 30–60 days early and use our AI Trip Planner above for exact day-wise costs!"
             )
         return jsonify({"reply": reply})
 
